@@ -297,26 +297,26 @@ static void mptcp_wvegas_pkts_acked(const struct sock *sk, s32 rtt_us)
 	struct wvegas *wvegas = inet_csk_ca(sk);
 	u32 vrtt, rtt;
 
-	if (rtt_us < 0) {
+	if (rtt_us < 0)
 		return;
-	}
 
 	vrtt = rtt_us + 1;
 
-	if (vrtt < wvegas->base_rtt) {
+	if (vrtt < wvegas->base_rtt)
 		wvegas->base_rtt = vrtt;
-	}
 
 	wvegas->sampled_rtt += vrtt;
 	wvegas->cnt_rtt++;
 
-    rtt = wvegas->sampled_rtt / wvegas->cnt_rtt;
+	//pr_warning("sampled_rtt is %u, cnt_rtt is %u", wvegas->sampled_rtt, wvegas->cnt_rtt);
+    rtt = wvegas->sampled_rtt / ((u32) wvegas->cnt_rtt);
     
-    if (rtt > 10 * wvegas->base_rtt && GLB == 0) {
+    if (rtt > 10 * wvegas->base_rtt && GLB == 0){
     	GLB=1;
         wvegas->trigger=1;
-        st_RTT=rtt;
+        st_RTT = rtt;
     }
+
 }
 
 /* Scaling is done in the numerator with alpha_scale_num and in the denominator
@@ -594,15 +594,14 @@ static void mptcp_ccc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 	int snd_cwnd;
 
 
-        struct wvegas *wvegas = inet_csk_ca(sk);
+    struct wvegas *wvegas = inet_csk_ca(sk);
 
-        mptcp_wvegas_pkts_acked(sk, tp->srtt_us);
+    mptcp_wvegas_pkts_acked(sk, tp->srtt_us);
       
 
-        if ((u32)wvegas->sampled_rtt / wvegas->cnt_rtt > 10*wvegas->base_rtt && wvegas->trigger==0 && GLB == 1 && ((u32)wvegas->sampled_rtt / wvegas->cnt_rtt - st_RTT) < wvegas->base_rtt) {
-
-                tp->snd_cwnd = 0;
-        }
+    if ((u32)wvegas->sampled_rtt / wvegas->cnt_rtt > 10 * wvegas->base_rtt && wvegas->trigger == 0 && GLB == 1 && ((u32)wvegas->sampled_rtt / wvegas->cnt_rtt - st_RTT) < wvegas->base_rtt) {
+            tp->snd_cwnd = 0;
+    }
 
 	if (!mptcp(tp)) {
 		tcp_reno_cong_avoid(sk, ack, acked);
