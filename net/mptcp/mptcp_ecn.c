@@ -1,5 +1,5 @@
 /*
- *	MPTCP implementation - Linked Increase congestion control Algorithm (LIA)
+ *	MPTCP implementation - Enable ECN support in Lia Algorithm 
  *
  *	Initial Design & Implementation:
  *	Sébastien Barré <sebastien.barre@uclouvain.be>
@@ -19,6 +19,8 @@
  *	John Ronan <jronan@tssg.org>
  *	Catalin Nicutar <catalin.nicutar@gmail.com>
  *	Brandon Heller <brandonh@stanford.edu>
+ *  Chi Xu <xuchi.int@gmail.com>
+ *  Jia Zhao <jiaoz@sfu.ca>
  *
  *
  *	This program is free software; you can redistribute it and/or
