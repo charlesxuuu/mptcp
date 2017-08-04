@@ -19,8 +19,7 @@ obj-$(CONFIG_MPTCP_ROUNDROBIN) += mptcp_rr.o
 obj-$(CONFIG_MPTCP_REDUNDANT) += mptcp_redundant.o
 
 # install as kernel module
-obj-m += mptcp_ecn.o
-obj-m += mptcp_our2.o
+obj-m += mptcp_ecn_sf.o
 
 
 mptcp-$(subst m,y,$(CONFIG_IPV6)) += mptcp_ipv6.o
