@@ -240,9 +240,17 @@ static void mptcp_ccc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 	}
 }
 
+u32 ecn_ssthresh(struct sock *sk)
+{
+	const struct tcp_sock *tp = tcp_sk(sk);
+
+	return max(tp->snd_cwnd >> 1U, 2U);
+}
+
+
 static struct tcp_congestion_ops mptcp_ccc = {
 	.init		= mptcp_ccc_init,
-	.ssthresh	= tcp_reno_ssthresh,
+	.ssthresh	= ecn_ssthresh,
 	.cong_avoid	= mptcp_ccc_cong_avoid,
 	.cwnd_event	= mptcp_ccc_cwnd_event,
 	.set_state	= mptcp_ccc_set_state,

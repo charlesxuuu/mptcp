@@ -33,6 +33,7 @@
 #include <linux/module.h>
 #include <linux/mm.h>
 #include <linux/inet_diag.h>
+#include <linux/kernel.h>
 
 /* Scaling is done in the numerator with alpha_scale_num and in the denominator
  * with alpha_scale_den.
@@ -47,10 +48,14 @@ static int alpha_scale = 12;
 
 /* global variables shared by all connections */
 static int shut_action_count = 0;
-static int global = 0;
-#define DCTCP_MAX_ALPHA	1024U
-#define DEBUG 1
+static u32 ref_srtt_us = 0;
+static u32 ref_ecn_count = 0;
 
+#define DCTCP_MAX_ALPHA	1024U
+
+
+#define SF_STATS 1
+//#define ECN_STATS 0
 
 struct mptcp_ccc {
 	u64	alpha;
@@ -59,6 +64,7 @@ struct mptcp_ccc {
 
 struct dctcp {
 
+	u32 ecn_count;
 	u32 trigger;
 
 	u32 acked_bytes_ecn;
@@ -94,7 +100,7 @@ static void mptcp_ccc_calc_should_shut(struct sock *sk)
 {
 	const struct mptcp_cb *mpcb = tcp_sk(sk)->mpcb;
 	const struct sock *sub_sk;
-	struct tcp_sock *cur_tp = tcp_sk(sk);
+	//struct tcp_sock *cur_tp = tcp_sk(sk);
 	//u64 ref_srtt_us = cur_tp->srtt_us;
 
 	if (!mpcb)
@@ -109,20 +115,34 @@ static void mptcp_ccc_calc_should_shut(struct sock *sk)
 	int index = 0;
 	mptcp_for_each_sk(mpcb, sub_sk) {
 		struct tcp_sock *sub_tp = tcp_sk(sub_sk);
-		printk(KERN_INFO "sub_sk[%d] snd_cwnd is %u ", index, sub_tp->snd_cwnd);
+		struct dctcp *ca = inet_csk_ca(sub_sk);
+		#ifdef SF_STATS
+		printk(KERN_INFO "sub_sk[%d] snd_cwnd is %u s_rtt is %u ecn_count is %u", index, sub_tp->snd_cwnd, sub_tp->srtt_us, ca->ecn_count);
+		#endif
 		index++;
 	}
-	printk(KERN_INFO "\n");
-	//if ((sub_tp->srtt_us - ref_srtt_us) <= SIMILAR_RTT_THRES){
 	
-	if (cur_tp->snd_cwnd_clamp != 1) {     
-		cur_tp->snd_cwnd_clamp = 1;
-		shut_action_count++;
-		//#ifdef DEBUG
-		//	printk(KERN_INFO "shut flow actions: %d, cnt_established: %x, cnt_subflows: %x", 
-		//		shut_action_count, mpcb->cnt_established, mpcb->cnt_subflows);
-		//#endif
+	#ifdef SF_STATS
+		printk(KERN_INFO "ref_srtt_us is %u, ref_ecn_count is %u", ref_srtt_us, ref_ecn_count);
+	#endif
+
+	index = 0;
+	mptcp_for_each_sk(mpcb, sub_sk) {
+		struct tcp_sock *sub_tp = tcp_sk(sub_sk);
+                struct dctcp *ca = inet_csk_ca(sub_sk);
+		if (abs(sub_tp->srtt_us - ref_srtt_us) <= 10 && ca->trigger == 0 && abs(ca->ecn_count - ref_ecn_count) <= 1) { //&& other condition
+			tcp_close(sk, 0);
+			shut_action_count++;
+			#ifdef SF_STATS
+                        printk(KERN_INFO "shut flow actions: %d flow remaining: %x", shut_action_count, mpcb->cnt_established);
+                	#endif
+		} else {
+			ca->trigger = 0;
+			ca->ecn_count = 0;
+		}
+		index++;
 	}
+
 }
 
 
@@ -141,7 +161,9 @@ static u32 dctcp_ssthresh(struct sock *sk)
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	u32 ssthresh = max(tp->snd_cwnd - ((tp->snd_cwnd * ca->dctcp_alpha) >> 11U), 2U);
-	printk(KERN_INFO "tp_snd_cwnd is %u, dctcp_alpha is %u, ssthresh is %u", tp->snd_cwnd, dctcp_alpha, ssthresh);
+	#ifdef ECN_STATS
+		printk(KERN_INFO "[update ssthresh]: tp_snd_cwnd is %u, dctcp_alpha is %u, ssthresh is %u", tp->snd_cwnd, ca->dctcp_alpha, ssthresh);
+	#endif
 	return ssthresh;
 }
 
@@ -231,17 +253,16 @@ static void dctcp_update_alpha(struct sock *sk, u32 flags)
 			ca->acked_bytes_ecn += acked_bytes;
 			/*suspicious subflows*/
 			/* first ECE */
-			if (enable_subflow_suspension == 1 && global == 0) {
-				if (ca->trigger == 0) {
-					global = 1;
-					ca->trigger = 1; 
-				}
-			} else {//global == 1
-				if (ca->trigger == 0) {	 
-				/* we have seen previous ECEs trigger == 1*/
+			if (enable_subflow_suspension == 1) {
+				ca->ecn_count++; //received first CE
+				if (ca->ecn_count >= 10) {
+					ca->trigger = 1;
+					ref_srtt_us = tp->srtt_us;
+					ref_ecn_count = ca->ecn_count;
+					/* compare all other socket */
 					mptcp_ccc_calc_should_shut(sk);
 				}
-			}
+			}//if (enable_subflow_suspension == 1)
 		}
 	}
 
@@ -260,8 +281,8 @@ static void dctcp_update_alpha(struct sock *sk, u32 flags)
 		if (ca->dctcp_alpha > DCTCP_MAX_ALPHA)
 			/* Clamp dctcp_alpha to max. */
 			ca->dctcp_alpha = DCTCP_MAX_ALPHA;
-		#ifdef DEBUG
-			printk(KERN_INFO "updated alpha %u, calculated by acked_bytes: %u, ecn_bytes: %u", ca->dctcp_alpha, ca->acked_bytes_toal, ca->acked_bytes_ecn);
+		#ifdef ECN_STATS
+		printk(KERN_INFO "[updated dctcp alpha]: %u, calculated by acked_bytes: %u, ecn_bytes: %u", ca->dctcp_alpha, ca->acked_bytes_total, ca->acked_bytes_ecn);
 		#endif
 		dctcp_reset(tp, ca);
 	}
@@ -422,7 +443,9 @@ static void mptcp_ccc_recalc_alpha(const struct sock *sk)
 	}
 
 	alpha = div64_u64(mptcp_ccc_scale(best_cwnd, alpha_scale_num), sum_denominator);
-
+	#ifdef ECN_STATS
+	printk(KERN_INFO "[update mptcp alpha]: %llu", alpha);
+	#endif
 	if (unlikely(!alpha))
 		alpha = 1;
 
@@ -441,11 +464,12 @@ static void mptcp_ccc_init(struct sock *sk)
 
 static void mptcp_ccc_ecn_init(struct sock *sk)
 {
-	printk(KERN_INFO "enable_subflow_suspension is %d", enable_subflow_suspension);
 	if (mptcp(tcp_sk(sk))) {
 		mptcp_set_forced(mptcp_meta_sk(sk), 0);
 		mptcp_set_alpha(mptcp_meta_sk(sk), 1);
 		const struct tcp_sock *tp = tcp_sk(sk);
+		
+		printk(KERN_INFO "saddr : %u sport %u daddr: %u dport: %u \n\n", tp->inet_conn.icsk_inet.inet_saddr, tp->inet_conn.icsk_inet.inet_sport, tp->inet_conn.icsk_inet.inet_daddr, tp->inet_conn.icsk_inet.inet_dport);
 
 		if ((tp->ecn_flags & TCP_ECN_OK) ||
 		    (sk->sk_state == TCP_LISTEN ||
@@ -460,7 +484,8 @@ static void mptcp_ccc_ecn_init(struct sock *sk)
 			ca->delayed_ack_reserved = 0;
 			ca->ce_state = 0;
 			ca->trigger = 0;
-
+			ca->ecn_count = 0;
+			
 			dctcp_reset(tp, ca);
 			return;
 		}
@@ -468,6 +493,7 @@ static void mptcp_ccc_ecn_init(struct sock *sk)
 		/* No ECN support? Fall back to Reno. Also need to clear
 		 * ECT from sk since it is set during 3WHS for DCTCP.
 		 */
+		printk(KERN_INFO "fall back to reno");
 		inet_csk(sk)->icsk_ca_ops = &mptcp_ccc;
 		INET_ECN_dontxmit(sk);
 

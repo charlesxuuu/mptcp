@@ -86,7 +86,7 @@ struct inet_connection_sock_af_ops {
  * @icsk_ack:		   Delayed ACK control data
  * @icsk_mtup;		   MTU probing control data
  */
-struct inet_connection_sock {
+struct  {
 	/* inet_sock has to be the first member! */
 	struct inet_sock	  icsk_inet;
 	struct request_sock_queue icsk_accept_queue;

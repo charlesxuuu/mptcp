@@ -298,13 +298,6 @@ static void mptcp_ccc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
                 tp->snd_cwnd = 0;
         }
 
-
-
-
-
-
-
-
 	if (!mptcp(tp)) {
 		tcp_reno_cong_avoid(sk, ack, acked);
 		return;
